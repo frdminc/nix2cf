@@ -1,0 +1,36 @@
+# Example instance — validates against schema/launchd-writers.schema.json.
+# Fixture, not site data (D21, §4.2).
+#
+# One writer per label prefix. bin/schema_lint.py rejects nested prefixes:
+# two writers over one namespace is the exact hazard this file prevents, and
+# nesting is how it comes back.
+
+contract_version: 1
+
+domain:
+  description: "The launchd label namespace on macOS"
+  # comprehensive defaults to true: a loaded job matching no declared prefix
+  # is an extra entry.
+
+writers:
+  - prefix: com.djbclark.*
+    writer: cfengine
+    repo: site-djbclark
+    note: "Site services. Rendered from services.yml via nix2cf."
+
+  - prefix: com.stayturgid.*
+    writer: cfengine
+    repo: stayturgid
+    note: "Fleet services."
+
+  - prefix: dev.mise.*
+    writer: mise
+    note: "Toolchain shims only (D1 superseded — mise no longer owns services)."
+
+  - prefix: org.nixos.*
+    writer: nix-darwin
+    note: "Substrate only, and only if §14.1 resolves toward nix-darwin (§12 Step 7)."
+
+  - prefix: com.apple.*
+    writer: apple
+    note: "Not ours. Declared so it is not reported as an extra entry."

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/djbclark/nix2cf/schema/launchd-writers.schema.json",
+  "title": "Site Model — registry/launchd-writers.yml",
+  "description": "One writer per launchd label prefix, CI-enforced (§4.1, from the tooling review). Kills the two-writers hazard at the source: a promise that would write outside CFEngine's declared prefix fails the lint before it reaches the machine. This is the safety rail that makes §12 Step 1 survivable on the operator's daily driver.",
+
+  "type": "object",
+  "properties": {
+    "contract_version": { "$ref": "common.schema.json#/$defs/contract_version" },
+
+    "domain": {
+      "description": "The launchd label namespace, as a domain of device state (D16(d)). Comprehensive means: any loaded launchd job whose label matches no declared prefix is reported as an extra entry.",
+      "$ref": "common.schema.json#/$defs/domain_coverage"
+    },
+
+    "writers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/writer" },
+      "minItems": 1
+    }
+  },
+  "required": ["contract_version", "domain", "writers"],
+  "additionalProperties": false,
+
+  "$defs": {
+    "writer": {
+      "type": "object",
+      "properties": {
+        "prefix": {
+          "description": "Reverse-DNS label prefix ending in `.*`, e.g. `com.stayturgid.*`. bin/schema_lint.py additionally rejects a prefix nested inside another — two writers over one namespace is exactly the hazard this file exists to prevent, and nesting is how it comes back.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(\\.[A-Za-z0-9][A-Za-z0-9_-]*)+\\.\\*$"
+        },
+        "writer": {
+          "description": "The single tool permitted to write labels under this prefix.",
+          "enum": ["cfengine", "mise", "nix-darwin", "homebrew", "apple", "third-party"]
+        },
+        "repo": {
+          "description": "Where that writer's definition lives, when it is ours.",
+          "type": "string"
+        },
+        "note": { "type": "string" }
+      },
+      "required": ["prefix", "writer"],
+      "additionalProperties": false
+    }
+  }
+}

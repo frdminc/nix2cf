@@ -1,0 +1,30 @@
+# Example instance — validates against schema/roles.schema.json.
+# Fixture, not site data (D21, §4.2).
+
+contract_version: 1
+
+roles:
+  deploy:
+    description: "May originate a signed release deployment. Held by a host, not by a machine called 'the control node' (R2)."
+    main: mac
+    backups: [vps-1]
+    trust_tier_required: operator
+    provides:
+      - class:deploy_authority
+
+  llm-gateway:
+    description: "Runs the LLM proxy the rest of the site talks to"
+    main: mac
+    backups: [vps-1]
+    trust_tier_required: managed
+    provides:
+      - service:litellm
+    requires:
+      - network:tailnet
+
+  observability-main:
+    description: "Authoritative metrics/log sink"
+    main: mac
+    backups: [vps-1]
+    peers: [hd8, p7a]
+    trust_tier_required: managed

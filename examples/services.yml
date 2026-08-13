@@ -1,0 +1,110 @@
+# Example instance — validates against schema/services.schema.json.
+#
+# This is a FIXTURE, not site data. It holds no real facts: real instances
+# live in the site repos and are supplied through this contract (D21, §4.2).
+# It exists so the schema has a regression test and so a reader can see what
+# the three D16 fields look like in use.
+
+contract_version: 1
+
+domains:
+  macos-launchd-services:
+    description: "launchd jobs on the operator's Mac under com.djbclark.* and com.stayturgid.*"
+    # comprehensive defaults to true: any loaded job not described here is
+    # reported as an extra entry.
+
+  macos-user-daemons:
+    description: "Third-party login items and vendor updaters"
+    comprehensive: false
+    opt_out_reason: deliberately-unmanaged
+    note: "Another tool's territory. Permanent, and this is the rare case."
+
+  android-termux-services:
+    description: "Termux/stayturgid-agent services on the fleet devices"
+    comprehensive: false
+    opt_out_reason: not-yet-migrated
+    note: "Transcribed at Step 2. This count is the backlog."
+
+bundles:
+  edge-http:
+    description: "Public HTTP edge: nothing in it is modified unless the whole bundle re-verifies"
+    domain: macos-launchd-services
+
+  fleet-vpn:
+    description: "VPN transport and the lockdown policy that depends on it"
+    domain: macos-launchd-services
+    interlocks:
+      - id: tailscale-authenticated-before-lockdown
+        description: >-
+          Tailscale must be authenticated before always-on VPN lockdown may be
+          enforced. Setting lockdown on a device whose Tailscale is
+          unauthenticated severs every management path to it (stayturgid#289).
+        pre_action:
+          command: ["tailscale", "status", "--json"]
+          expect_exit: 0
+          timeout_seconds: 15
+        defines_class: tailscale_authenticated
+        blocks: enclosing-bundle
+        report: true
+
+services:
+  - name: caddy
+    description: "Site reverse proxy and HTTPS terminator"
+    domain: macos-launchd-services
+    bundle: edge-http
+    platform: macos
+    hosts: [mac]
+    runs_as: djbclark
+    command: ["/opt/homebrew/bin/caddy", "run", "--config", "/etc/caddy/Caddyfile"]
+    managed_by: cfengine
+    launchd:
+      label: com.djbclark.caddy
+      run_at_load: true
+      keep_alive: true
+    provides:
+      - service:caddy
+      - port:443
+      - port:80
+    requires:
+      - path:/etc/caddy/Caddyfile
+      - service:tailscaled
+    platform_notes: "Port allocations are authoritative in registry/ports.yml, asserted at eval time."
+
+  - name: litellm-proxy
+    description: "LLM gateway behind Caddy"
+    domain: macos-launchd-services
+    bundle: edge-http
+    platform: macos
+    role: llm-gateway
+    runs_as: djbclark
+    command: ["/opt/homebrew/bin/litellm", "--config", "/etc/litellm/config.yaml"]
+    env:
+      LITELLM_MASTER_KEY: LITELLM_MASTER_KEY
+      OPENAI_API_KEY: OPENAI_API_KEY
+    managed_by: cfengine
+    launchd:
+      label: com.djbclark.litellm
+    provides:
+      - service:litellm
+      - port:4000
+    requires:
+      - service:caddy
+      - secret:LITELLM_MASTER_KEY
+
+  - name: tailscaled
+    description: "Mesh VPN transport"
+    domain: macos-launchd-services
+    bundle: fleet-vpn
+    platform: macos
+    runs_as: root
+    command: ["/usr/local/bin/tailscaled"]
+    managed_by: cfengine
+    launchd:
+      label: com.stayturgid.tailscaled
+    provides:
+      - service:tailscaled
+      - network:tailnet
+    # No depends_on: what this needs is stated locally and nix2cf derives the
+    # edges. An authored depends_on stays available and wins where it exists,
+    # but writing one here would require knowing what else the site runs —
+    # exactly the global knowledge R13 rejects as the primary mechanism.

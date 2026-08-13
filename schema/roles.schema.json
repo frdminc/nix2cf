@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/djbclark/nix2cf/schema/roles.schema.json",
+  "title": "Site Model — registry/roles.yml",
+  "description": "Feature roles and their assignment: role -> {main, backups[], peers[]} (§4.1). This file is what dissolves 'control node' into data (R2) — deploy authority is a role a host holds, not a machine.\n\nDeliberately has NO domain_coverage block: comprehensiveness (D16(d)) is a property of a domain of DEVICE STATE, and roles are intent/assignment, not device state. There is nothing on a device that could show up as an extra entry against this file. Its absence is a decision, not an oversight.",
+
+  "type": "object",
+  "properties": {
+    "contract_version": { "$ref": "common.schema.json#/$defs/contract_version" },
+
+    "roles": {
+      "type": "object",
+      "propertyNames": { "$ref": "common.schema.json#/$defs/identifier" },
+      "additionalProperties": { "$ref": "#/$defs/role" },
+      "minProperties": 1
+    }
+  },
+  "required": ["contract_version", "roles"],
+  "additionalProperties": false,
+
+  "$defs": {
+    "role": {
+      "type": "object",
+      "properties": {
+        "description": { "type": "string", "minLength": 1 },
+        "main": {
+          "description": "The host currently holding the role. Flipping this to a backup and back is the R2 proof (§12 Step 5).",
+          "$ref": "common.schema.json#/$defs/host_name"
+        },
+        "backups": {
+          "description": "Hosts that can take `main` over. Ordered by preference.",
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/host_name" },
+          "uniqueItems": true
+        },
+        "peers": {
+          "description": "Hosts that participate in the role without being candidates for `main` (mirrors, observers).",
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/$defs/host_name" },
+          "uniqueItems": true
+        },
+        "trust_tier_required": {
+          "description": "Minimum inventory trust_tier a host must hold to be assigned this role (§4.1). A consented device must never silently acquire a deploy role.",
+          "enum": ["operator", "managed", "consented"]
+        },
+        "provides": { "$ref": "common.schema.json#/$defs/provides" },
+        "requires": { "$ref": "common.schema.json#/$defs/requires" }
+      },
+      "required": ["description", "main"],
+      "additionalProperties": false
+    }
+  }
+}
