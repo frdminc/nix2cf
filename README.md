@@ -1,6 +1,6 @@
 # nix2cf
 
-The compile layer for the [fleetopia](https://github.com/djbclark/fleetopia)
+The compile layer for the [tendcf](https://github.com/djbclark/tendcf)
 architecture: **Site Model → merge → conflict check → dependency inference →
 CFEngine Augments**.
 
@@ -10,7 +10,7 @@ because they are schema, and schema is cheapest to get right before there is
 data to migrate.
 
 > Authority for every decision referenced here is
-> `fleetopia/docs/architecture/architecture-DEFINITIVE-v2.md`. Section numbers
+> `tendcf/docs/architecture/architecture-DEFINITIVE-v2.md`. Section numbers
 > (§4.1, D16, R13…) refer to that document. **The field designs in `schema/`
 > are decided — do not re-derive them.** If a schema and the architecture
 > document disagree, the document wins and the schema is a bug.
