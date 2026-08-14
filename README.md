@@ -32,3 +32,5 @@ The compiler stages (tendcf §13 Step 3), in this order:
 Also later: the Nix module authoring frontend (D12), with JSON Schema
 generated from the module options so the two type systems are never
 hand-maintained in parallel.
+
+License: [GPL-3.0-or-later](LICENSE).
