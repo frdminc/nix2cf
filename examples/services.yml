@@ -9,7 +9,7 @@ contract_version: 1
 
 domains:
   macos-launchd-services:
-    description: "launchd jobs on the operator's Mac under com.djbclark.* and com.stayturgid.*"
+    description: "launchd jobs on the operator's Mac under com.djbclark.* and org.tendcf.*"
     # comprehensive defaults to true: any loaded job not described here is
     # reported as an extra entry.
 
@@ -20,7 +20,7 @@ domains:
     note: "Another tool's territory. Permanent, and this is the rare case."
 
   android-termux-services:
-    description: "Termux/stayturgid-agent services on the fleet devices"
+    description: "Termux/tendcf-agent services on the fleet devices"
     comprehensive: false
     opt_out_reason: not-yet-migrated
     note: "Transcribed at Step 2. This count is the backlog."
@@ -38,7 +38,7 @@ bundles:
         description: >-
           Tailscale must be authenticated before always-on VPN lockdown may be
           enforced. Setting lockdown on a device whose Tailscale is
-          unauthenticated severs every management path to it (stayturgid#289).
+          unauthenticated severs every management path to it.
         pre_action:
           command: ["tailscale", "status", "--json"]
           expect_exit: 0
@@ -100,7 +100,7 @@ services:
     command: ["/usr/local/bin/tailscaled"]
     managed_by: cfengine
     launchd:
-      label: com.stayturgid.tailscaled
+      label: org.tendcf.tailscaled
     provides:
       - service:tailscaled
       - network:tailnet

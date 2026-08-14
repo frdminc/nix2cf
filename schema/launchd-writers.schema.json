@@ -27,7 +27,7 @@
       "type": "object",
       "properties": {
         "prefix": {
-          "description": "Reverse-DNS label prefix ending in `.*`, e.g. `com.stayturgid.*`. bin/schema_lint.py additionally rejects a prefix nested inside another — two writers over one namespace is exactly the hazard this file exists to prevent, and nesting is how it comes back.",
+          "description": "Reverse-DNS label prefix ending in `.*`, e.g. `org.tendcf.*`. bin/schema_lint.py additionally rejects a prefix nested inside another — two writers over one namespace is exactly the hazard this file exists to prevent, and nesting is how it comes back.",
           "type": "string",
           "pattern": "^[a-z][a-z0-9]*(\\.[A-Za-z0-9][A-Za-z0-9_-]*)+\\.\\*$"
         },

@@ -18,10 +18,10 @@ writers:
     repo: site-djbclark
     note: "Site services. Rendered from services.yml via nix2cf."
 
-  - prefix: com.stayturgid.*
+  - prefix: org.tendcf.*
     writer: cfengine
-    repo: stayturgid
-    note: "Fleet services."
+    repo: tendcf
+    note: "Engine-owned example services. Fixture only."
 
   - prefix: dev.mise.*
     writer: mise

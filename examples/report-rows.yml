@@ -31,7 +31,7 @@
   release: ops-v1.3.2
   domain: android-termux-services
   bundle: edge-http
-  entry: stayturgid-agent
+  entry: tendcf-agent
   mode: audit
   outcome: compliant
 

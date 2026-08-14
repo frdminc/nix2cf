@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/djbclark/nix2cf/schema/common.schema.json",
   "title": "nix2cf — shared Site Model definitions",
-  "description": "Definitions shared by every Site Model file. The three D16 fields (provides/requires, interlocks, comprehensive/opt_out_reason) live here because they are cross-cutting: tendcf architecture-DEFINITIVE-v2.md §4.1 and §4.5.1.",
+  "description": "Definitions shared by every Site Model file. The three D16 fields (provides/requires, interlocks, comprehensive/opt_out_reason) live here because they are cross-cutting: tendcf architecture-DEFINITIVE-v3.md §4. This file is a temporary home; schemas belong in tendcf (D21).",
 
   "$defs": {
     "contract_version": {
@@ -71,7 +71,7 @@
     },
 
     "interlock": {
-      "description": "A stated precondition (D16(c), Bcfg2 Actions semantics). Compiles to a CFEngine guard class plus a bundle-scoped refusal: if the pre-action fails, EVERY entry in the enclosing bundle is blocked from modification and the failure is reported. Blast radius and reporting are consts, not author choices — that is what makes stayturgid#289 structurally closed rather than a safe default plus a comment.",
+      "description": "A stated precondition (D16(c), Bcfg2 Actions semantics). Compiles to a CFEngine guard class plus a bundle-scoped refusal: if the pre-action fails, EVERY entry in the enclosing bundle is blocked from modification and the failure is reported. Blast radius and reporting are consts, not author choices — that is what structurally closes 'VPN must be authenticated before lockdown may be enforced' rather than leaving it as a safe default plus a comment.",
       "type": "object",
       "properties": {
         "id": { "$ref": "common.schema.json#/$defs/identifier" },
