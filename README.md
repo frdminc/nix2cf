@@ -15,8 +15,10 @@ site facts, inventory, or the product engine.
 A schema change is a tendcf interface change. This tool consumes that
 contract; it does not own it.
 
-> Authority: `tendcf/docs/architecture/architecture-DEFINITIVE-v3.md`.
-> If this README and that document disagree, the document wins.
+> Authority: `tendcf/docs/paper/tendcf-architecture-guide.md` (vetted
+> current-state). If this README and that guide disagree, the guide wins.
+> `architecture-DEFINITIVE-v3.md` is the implementer map and must agree
+> with the guide.
 
 ## Not here yet
 
