@@ -1,6 +1,6 @@
 # nix2cf
 
-The **compiler tool** for the [tendcf](https://github.com/djbclark/tendcf)
+The **compiler tool** for the [tendcf](https://github.com/frdminc/tendcf)
 architecture: **Site Model → merge → conflict check → dependency inference →
 [CFEngine Augments](https://docs.cfengine.com/docs/3.21/reference-language-concepts-augments.html)**.
 
@@ -9,9 +9,9 @@ module frontend may author the same JSON later. This repo does not hold
 site facts, inventory, or the product engine.
 
 **Schemas and types live in tendcf** (v3 D21):
-[`schema/`](https://github.com/djbclark/tendcf/tree/master/schema),
-[`examples/`](https://github.com/djbclark/tendcf/tree/master/examples),
-[`bin/schema_lint.py`](https://github.com/djbclark/tendcf/blob/master/bin/schema_lint.py).
+[`schema/`](https://github.com/frdminc/tendcf/tree/master/schema),
+[`examples/`](https://github.com/frdminc/tendcf/tree/master/examples),
+[`bin/schema_lint.py`](https://github.com/frdminc/tendcf/blob/master/bin/schema_lint.py).
 A schema change is a tendcf interface change. This tool consumes that
 contract; it does not own it.
 
