@@ -1,0 +1,30 @@
+{
+  "coverage": "comprehensive",
+  "entries": {
+    "advisor-key": {
+      "ed25519:b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2": {
+        "state": "present"
+      }
+    },
+    "agent": {
+      "tendcf-agent": {
+        "sha256": "sha256:d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+        "state": "present",
+        "version": "ops-v1.0.0"
+      }
+    },
+    "policy-tree": {
+      "tree": {
+        "sha256": "sha256:c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+        "state": "present"
+      }
+    },
+    "trust-policy": {
+      "consent": {
+        "local_yes_required": true,
+        "state": "present",
+        "tier": "consented"
+      }
+    }
+  }
+}
