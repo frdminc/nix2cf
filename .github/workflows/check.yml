@@ -1,0 +1,28 @@
+name: Check
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The contract is consumed from tendcf, not copied here (D21). The
+      # tests load its schemas and its reference projector from a sibling
+      # checkout.
+      - uses: actions/checkout@v4
+        with:
+          repository: frdminc/tendcf
+          path: tendcf
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Tests
+        env:
+          TENDCF_DIR: ${{ github.workspace }}/tendcf
+        run: uv run pytest
