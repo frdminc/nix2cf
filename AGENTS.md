@@ -66,9 +66,14 @@ overridden. Never use `route-override`, `--est-pct`, `--min-headroom 0` or
      wont-fit, inflight, headroom or preflight), when `aiuse --available --json`
      lists it `usable_now: false`, or, for Argon, when `acp-run agy` fails on
      quota. Short means move to the next model in the order, never force it.
-     Say in the PR body which model was short and why. As of 2026-10-31 astra
-     is short: Codex has 45% left, below the 60% `codex:frontier` estimate
-     floor, so Fable takes the first seat.
+     Say in the PR body which model was short and why. **Decide "short" by
+     running it, never from config:** `acp-dispatch ... --dry-run` with the
+     real `-C` prints `would refuse` when the pool is short. The
+     `codex:frontier` estimate comes from measured history (about 2% of the
+     weekly window per astra review, 2026-11-01); its 60% default applies only
+     with fewer than three measured slices. On 2026-10-31 a lead read that
+     default from the config, called astra short at 45%, and sent every review
+     to Fable or Argon, though astra was available.
    - Design rulings (a `schema_version` bump, the privilege or enforcement
      scope on a host, a deploy plan, the unit-writer or consent-diff design)
      get two independent frontier reviews, astra and Fable. Argon stands in
