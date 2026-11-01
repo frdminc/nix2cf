@@ -31,11 +31,17 @@ touching the host.
 ```sh
 export TENDCF_DIR=~/src/tendcf            # schemas + reference projector
 uv run nix2cf buildfile \
-    --host mac --platform macos \
+    --host mac --platform macos --supervisor launchd \
     --host-key ed25519:a1a1…a1 \
     --device-trust examples/site/device-trust.json \
     --site examples/site                  # services.yml, roles.yml, launchd-writers.yml
 ```
+
+`--platform` (`macos` or `linux`) and `--supervisor` (`launchd`, `systemd`,
+`runit` or `nixos`) are both required and have no default. It is written into the goal file's `device-trust.entries.supervisor`;
+a `--device-trust` document that already carries a different `supervisor` is
+refused. The output is **schema_version 4** (tendcf's `goal-file.schema.json`);
+CI fails when `GOAL_FILE_SCHEMA_VERSION` and tendcf's schema const differ.
 
 That prints the host's **goal file**: the canonical (RFC 8785, no trailing
 newline) JSON document of guide §7 that a release carries, that consent binds
@@ -60,20 +66,28 @@ What the compile does, in order:
    checked, and (in the tests) projected through tendcf's reference projector
    with zero findings.
 
+A `nixos` host gets no services: selecting any is refused ("host is
+nixos-supervised; its units are the Nix configuration's"), and the goal file
+carries `supervision: {"coverage": "deliberately-unmanaged"}` with the
+`supervisor` entry, which tendcf's projector reads as `{"vars":{}}`.
+
 `examples/site/` is tendcf's own fixtures with one edit, so an interlock
 renders. Fixture, not site data.
 
 ## Not here yet
 
 - **Inference** (`provides`/`requires` → ordering edges): waits until real
-  types exist on two platforms (guide §10, §18 Step 3), and goal-file v1 has no
+  types exist on two platforms (guide §10, §18 Step 3), and the goal file has no
   edge kind to render into.
-- **Any supervisor but launchd**, and therefore any Linux or Android host
-  (Steps 1–2, 4). A non-macOS host is a compile error, not a guess.
+- **Units for any supervisor but launchd** (Steps 1–2, 4, 6). A `systemd` or
+  `runit` host gets its `supervisor` entry, but a service selected for it is a
+  compile error, not a guess: the systemd renderer (and with it the v2
+  `restart`/`wanted_by` fields) is step 6 proper. `nixos` needs no renderer,
+  as above. Android has no supervisor decided: it is not a `--platform` choice.
 - **Extra-entry reporting** (device-side, tendcf-agent) and `def.json`.
 - **Inventory, trust policy, peer actions** as Site Model inputs (Step 0
-  remaining): the host key, platform and `device-trust` domain are passed on
-  the command line until those schemas exist.
+  remaining): the host key, platform, supervisor and `device-trust` domain are
+  passed on the command line until those schemas exist.
 - **Tombstones** from the Site Model (it cannot yet say "absent").
 - **The Nix module frontend** (D12). `nix2cf eval-nix FILE` evaluates a plain
   Nix expression with `nix-instantiate --eval --strict --json`; the test for
