@@ -47,7 +47,10 @@ SUPERVISOR_SCHEMA_VERSION = 4
 # Older versions this compiler can still state. The launchd shape did not
 # change between v1 and v4; only v3 and v4 are claimed, because v3 is the one
 # the spec names ("Non-nixos hosts may render at 3 by dropping the entry").
-SUPPORTED_SCHEMA_VERSIONS = (3, 4)
+# The current version is derived, so a bump of GOAL_FILE_SCHEMA_VERSION cannot
+# leave the renderer refusing its own version. The literal 3 is NOT derived:
+# re-justify it (is v3 still a shape a device may hold?) at every bump.
+SUPPORTED_SCHEMA_VERSIONS = (3, GOAL_FILE_SCHEMA_VERSION)
 
 # The one state domain the reference projector reads
 # (`tendcf/bin/projector.py:PROJECTING_DOMAIN`). The Site Model's own domain
@@ -457,9 +460,12 @@ def render_goal_file(
 ) -> tuple[dict[str, Any], list[str]]:
     """Build the goal-file document. Returns (document, errors).
 
-    Expects `host_errors(host, schema_version)` to be empty (compile_host checks).
+    Re-checks `host_errors` and `supervisor_refusals` itself, so a direct call
+    cannot emit a file compile_host would refuse (a nixos host below v4, say).
     """
-    errors: list[str] = supervisor_refusals(host, selected)
+    errors: list[str] = host_errors(host, schema_version)
+    if not errors:
+        errors = supervisor_refusals(host, selected)
     if errors:
         return {}, errors
     supervisor = host.supervisor

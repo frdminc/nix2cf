@@ -156,7 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
     b = sub.add_parser("buildfile", help="render what one host would receive")
     b.add_argument("--host", required=True, help="host name as used in the Site Model (hosts:, roles)")
     b.add_argument("--host-key", required=True, help="device public key, ed25519:<64 hex>")
-    b.add_argument("--platform", default="macos", choices=["macos", "linux", "android"])
+    b.add_argument("--platform", required=True, choices=["macos", "linux"], help="no default; android is not offered until Termux is decided")
     b.add_argument(
         "--supervisor",
         required=True,

@@ -268,14 +268,24 @@ def test_unknown_supervisor_refused(schemas: Schemas) -> None:
     assert "there is no default" in str(exc.value)
 
 
+PAIRING = "Resolution: fix --platform or --supervisor"
+
+
 @pytest.mark.parametrize(
-    ("platform", "supervisor"),
-    [("macos", "systemd"), ("macos", "nixos"), ("linux", "launchd"), ("android", "runit")],
+    ("platform", "supervisor", "expected"),
+    [
+        ("macos", "systemd", PAIRING),
+        ("macos", "nixos", PAIRING),
+        ("linux", "launchd", PAIRING),
+        ("android", "runit", "no supervisor is decided for that platform"),
+    ],
 )
-def test_platform_supervisor_mismatch_refused(schemas: Schemas, platform: str, supervisor: str) -> None:
+def test_platform_supervisor_mismatch_refused(schemas: Schemas, platform: str, supervisor: str, expected: str) -> None:
+    host = _host(SITE, platform=platform, supervisor=supervisor, trust=_trust(SITE, None))
     with pytest.raises(CompileError) as exc:
-        compile_host(_model(SITE), _host(SITE, platform=platform, supervisor=supervisor, trust=_trust(SITE, None)), schemas)
-    assert "Resolution: fix --platform or --supervisor" in str(exc.value) or "no supervisor is decided" in str(exc.value)
+        compile_host(_model(SITE), host, schemas)
+    assert expected in str(exc.value)
+    assert (PAIRING in str(exc.value)) == (expected == PAIRING)  # the other row's message is not produced
 
 
 def _declare_on(model: SiteModel, host: str) -> None:
@@ -286,8 +296,11 @@ def _declare_on(model: SiteModel, host: str) -> None:
         rec.pop("role", None)
 
 
-def test_nixos_host_without_services_is_deliberately_unmanaged(schemas: Schemas, projector, lint) -> None:
+def test_nixos_host_without_services_is_deliberately_unmanaged(tendcf: Path, schemas: Schemas, projector, lint) -> None:
     result = compile_host(_model(SITE), _nixos_host(), schemas)
+    # tendcf's own passthrough fixture is the oracle (the cross-file lint is a
+    # no-op on a file with no entries): drift in either repo shows up here.
+    assert result.canonical == (tendcf / "deploy" / "linux" / "passthrough" / "goal-file.json").read_bytes()
     doc = result.goal_file
     assert doc["schema_version"] == 4
     assert doc["domains"]["supervision"] == {"coverage": "deliberately-unmanaged"}
@@ -337,6 +350,40 @@ def test_schema_v3_drops_the_supervisor_entry_for_other_hosts() -> None:
     assert doc["schema_version"] == 3
     assert "supervisor" not in doc["domains"]["device-trust"]["entries"]
     assert not any("rendered at schema_version" in d for d in result.diagnostics)  # no schema given: only the no-schema note
+
+
+def test_schema_v3_with_schema_is_noted_not_validated(schemas: Schemas) -> None:
+    result = compile_host(_model(SITE), _host(SITE), schemas, schema_version=3)
+    assert result.goal_file["schema_version"] == 3
+    assert any("NOT validated" in d for d in result.diagnostics)
+
+
+def test_render_goal_file_alone_refuses_nixos_below_v4() -> None:
+    from nix2cf.compile import render_goal_file
+
+    doc, errors = render_goal_file(_model(SITE), _nixos_host(), [], schema_version=3)
+    assert doc == {} and any("cannot state" in e for e in errors)
+
+
+def test_render_goal_file_alone_refuses_unrendered_services() -> None:
+    from nix2cf.compile import render_goal_file, select_services
+
+    model = _model(SITE)
+    _declare_on(model, "get")
+    host = _nixos_host()
+    selected, _, _ = select_services(model, host)
+    assert selected
+    doc, errors = render_goal_file(model, host, selected)
+    assert doc == {} and any("nixos-supervised" in e for e in errors)
+
+
+def test_cli_platform_is_required_and_android_not_offered(tendcf: Path) -> None:
+    base = ["buildfile", "--host", "mac", "--supervisor", "launchd", "--host-key", HOST_KEY,
+            "--device-trust", str(SITE / "device-trust.json"), "--site", str(SITE)]
+    missing = _run(base, tendcf)
+    assert missing.returncode == 2 and b"--platform" in missing.stderr and missing.stdout == b""
+    android = _run([*base, "--platform", "android"], tendcf)
+    assert android.returncode == 2 and b"invalid choice" in android.stderr
 
 
 def test_unsupported_schema_version_refused() -> None:
@@ -428,7 +475,7 @@ def _run(args: list[str], tendcf: Path) -> subprocess.CompletedProcess[bytes]:
 
 def test_cli_buildfile_matches_library(tendcf: Path, schemas: Schemas) -> None:
     proc = _run(
-        ["buildfile", "--host", "mac", "--supervisor", "launchd", "--host-key", HOST_KEY, "--device-trust", str(SITE / "device-trust.json"), "--site", str(SITE)],
+        ["buildfile", "--host", "mac", "--platform", "macos", "--supervisor", "launchd", "--host-key", HOST_KEY, "--device-trust", str(SITE / "device-trust.json"), "--site", str(SITE)],
         tendcf,
     )
     assert proc.returncode == 0, proc.stderr.decode()
@@ -437,7 +484,7 @@ def test_cli_buildfile_matches_library(tendcf: Path, schemas: Schemas) -> None:
 
 def test_cli_project_matches_projector(tendcf: Path, schemas: Schemas, projector) -> None:
     proc = _run(
-        ["buildfile", "--host", "mac", "--supervisor", "launchd", "--host-key", HOST_KEY, "--device-trust", str(SITE / "device-trust.json"), "--site", str(SITE), "--project"],
+        ["buildfile", "--host", "mac", "--platform", "macos", "--supervisor", "launchd", "--host-key", HOST_KEY, "--device-trust", str(SITE / "device-trust.json"), "--site", str(SITE), "--project"],
         tendcf,
     )
     assert proc.returncode == 0, proc.stderr.decode()
@@ -447,7 +494,7 @@ def test_cli_project_matches_projector(tendcf: Path, schemas: Schemas, projector
 
 def test_cli_requires_supervisor(tendcf: Path) -> None:
     proc = _run(
-        ["buildfile", "--host", "mac", "--host-key", HOST_KEY, "--device-trust", str(SITE / "device-trust.json"), "--site", str(SITE)],
+        ["buildfile", "--host", "mac", "--platform", "macos", "--host-key", HOST_KEY, "--device-trust", str(SITE / "device-trust.json"), "--site", str(SITE)],
         tendcf,
     )
     assert proc.returncode == 2 and b"--supervisor" in proc.stderr and proc.stdout == b""
@@ -482,7 +529,7 @@ def test_cli_refusal_exits_1(tendcf: Path, tmp_path: Path) -> None:
     doc["services"][1]["launchd"]["label"] = doc["services"][0]["launchd"]["label"]
     (site / "services.yml").write_text(yaml.safe_dump(doc))
     proc = _run(
-        ["buildfile", "--host", "mac", "--supervisor", "launchd", "--host-key", HOST_KEY, "--device-trust", str(site / "device-trust.json"), "--site", str(site)],
+        ["buildfile", "--host", "mac", "--platform", "macos", "--supervisor", "launchd", "--host-key", HOST_KEY, "--device-trust", str(site / "device-trust.json"), "--site", str(site)],
         tendcf,
     )
     assert proc.returncode == 1
@@ -496,7 +543,7 @@ def test_cli_schema_invalid_input_exits_1(tendcf: Path, tmp_path: Path) -> None:
     doc["domains"]["macos-user-daemons"].pop("opt_out_reason")  # opt-out with no reason
     (site / "services.yml").write_text(yaml.safe_dump(doc))
     proc = _run(
-        ["buildfile", "--host", "mac", "--supervisor", "launchd", "--host-key", HOST_KEY, "--device-trust", str(site / "device-trust.json"), "--site", str(site)],
+        ["buildfile", "--host", "mac", "--platform", "macos", "--supervisor", "launchd", "--host-key", HOST_KEY, "--device-trust", str(site / "device-trust.json"), "--site", str(site)],
         tendcf,
     )
     assert proc.returncode == 1

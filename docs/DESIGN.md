@@ -38,7 +38,9 @@ oracle for the one that exists is `tendcf/examples/host_specific.json`.
   (`restart`, `wanted_by`) or the systemd argv/`working_dir` alphabet is
   written by nix2cf yet. A `nixos` host is complete: it has no units to
   render (see below).
-- *Android/Termux* (Step 2) — no Termux unit flavor exists in the goal file.
+- *Android/Termux* (Step 2) — deferred (linux-targets ruling 2026-10-29). `android`
+  is not a `--platform` choice and the platform↔supervisor table refuses it;
+  the `runit` flavour exists in the goal file but has no renderer here.
 - *Extra-entry reporting* — device-side, needs tendcf-agent.
 - *def.json* — MPF glue under the policy-tree digest, never per-host
   (reconciliation §9).

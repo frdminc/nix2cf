@@ -37,8 +37,8 @@ uv run nix2cf buildfile \
     --site examples/site                  # services.yml, roles.yml, launchd-writers.yml
 ```
 
-`--supervisor` (`launchd`, `systemd`, `runit` or `nixos`) is required and has
-no default. It is written into the goal file's `device-trust.entries.supervisor`;
+`--platform` (`macos` or `linux`) and `--supervisor` (`launchd`, `systemd`,
+`runit` or `nixos`) are both required and have no default. It is written into the goal file's `device-trust.entries.supervisor`;
 a `--device-trust` document that already carries a different `supervisor` is
 refused. The output is **schema_version 4** (tendcf's `goal-file.schema.json`);
 CI fails when `GOAL_FILE_SCHEMA_VERSION` and tendcf's schema const differ.
@@ -83,7 +83,7 @@ renders. Fixture, not site data.
   `runit` host gets its `supervisor` entry, but a service selected for it is a
   compile error, not a guess: the systemd renderer (and with it the v2
   `restart`/`wanted_by` fields) is step 6 proper. `nixos` needs no renderer,
-  as above. Android has no supervisor decided and is refused.
+  as above. Android has no supervisor decided: it is not a `--platform` choice.
 - **Extra-entry reporting** (device-side, tendcf-agent) and `def.json`.
 - **Inventory, trust policy, peer actions** as Site Model inputs (Step 0
   remaining): the host key, platform, supervisor and `device-trust` domain are
