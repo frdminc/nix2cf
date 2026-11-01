@@ -66,14 +66,23 @@ overridden. Never use `route-override`, `--est-pct`, `--min-headroom 0` or
      wont-fit, inflight, headroom or preflight), when `aiuse --available --json`
      lists it `usable_now: false`, or, for Argon, when `acp-run agy` fails on
      quota. Short means move to the next model in the order, never force it.
-     Say in the PR body which model was short and why. **Decide "short" by
-     running it, never from config:** `acp-dispatch ... --dry-run` with the
-     real `-C` prints `would refuse` when the pool is short. The
-     `codex:frontier` estimate comes from measured history (about 2% of the
-     weekly window per astra review, 2026-11-01); its 60% default applies only
-     with fewer than three measured slices. On 2026-10-31 a lead read that
-     default from the config, called astra short at 45%, and sent every review
-     to Fable or Argon, though astra was available.
+     Say in the PR body which model was short and why. **Check the actual
+     dispatch, never infer availability from the config alone.** Run the
+     intended command with `--dry-run`, preserving its model, kind, effort,
+     brief, `-C` and output/task directory. Inspect `would refuse: class=...`
+     (or `would_refuse_class` with `--json`), not just the exit status:
+     dry-run returns 0 for predicted headroom, fit and concurrency refusals.
+     It skips preflight, so no predicted refusal is not proof of availability;
+     the real dispatch must still pass its checks. The `codex:frontier`
+     estimate uses comparable measured history: on 2026-11-01 the selected
+     machine-wide history for astra at high effort held 14 matching records,
+     and the scalar and weekly-window estimates were both 2 percentage points
+     (upper median). The configured 60% fallback floor applies when the
+     selected history has fewer than three measurements for the scalar or the
+     relevant quota window; three measurements overall do not release every
+     window's floor. On 2026-10-31 a lead treated the configured 60% fallback
+     as a permanent minimum and declared astra short at 45% remaining. That
+     comparison alone did not establish that astra was short.
    - Design rulings (a `schema_version` bump, the privilege or enforcement
      scope on a host, a deploy plan, the unit-writer or consent-diff design)
      get two independent frontier reviews, astra and Fable. Argon stands in
