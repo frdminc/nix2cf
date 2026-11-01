@@ -26,13 +26,18 @@ oracle for the one that exists is `tendcf/examples/host_specific.json`.
 
 - *Dependency inference* (`provides`/`requires` → ordering edges). Guide §10:
   "Inference does not start until real type definitions exist on two
-  platforms." Goal-file v1 also has no edge kind (reconciliation §8), so there
+  platforms." The goal file also has no edge kind (reconciliation §8), so there
   is nothing to render an edge into yet. `provides`/`requires` are used only by
   the conflict check (two providers of one token on one host) and to report
   unmatched `requires` as notes.
-- *Every supervisor except launchd.* The goal file's `unit` admits launchd,
-  systemd and runit; only the launchd adapter exists (guide §4, §18 Step 1).
-  A linux/android host is a compile error here, not a guess.
+- *Every supervisor's units except launchd's.* The goal file's `unit` admits
+  launchd, systemd and runit; only the launchd adapter exists (guide §4, §18
+  Step 1). A systemd or runit host is stated (its `supervisor` entry) but any
+  service selected for it is a compile error here, not a guess. The systemd
+  renderer is linux-targets step 6 proper, so none of the v2 systemd fields
+  (`restart`, `wanted_by`) or the systemd argv/`working_dir` alphabet is
+  written by nix2cf yet. A `nixos` host is complete: it has no units to
+  render (see below).
 - *Android/Termux* (Step 2) — no Termux unit flavor exists in the goal file.
 - *Extra-entry reporting* — device-side, needs tendcf-agent.
 - *def.json* — MPF glue under the policy-tree digest, never per-host
@@ -90,6 +95,10 @@ Each of these is marked `TODO(operator)` in `nix2cf/compile.py` at the spot.
 | Unit-writer registry | Every declared prefix is carried (the device runs extra-entry detection without the Site Model, reconciliation §8). | — |
 | Unmatched `requires` | A note, and `path:`/`secret:` kinds only counted (their providers are site registries, not Site Model records). | Guide §15 says a compile error with near-misses once the lookup exists. |
 | `device-trust`, host key, platform | Supplied by the caller (`--device-trust`, `--host-key`, `--platform`). | Inventory and trust-policy shapes are "Step 0 remaining". |
+| `supervisor` | A required host input (`--supervisor launchd\|systemd\|runit\|nixos`) next to `platform`, **no default** (house rule; spec Q1/Q8). Written into `device-trust.entries.supervisor` as `{"host":{"name":X,"state":"present"}}`. A supplied `device-trust` document whose `supervisor` entry differs is refused; one that omits it is fine. | No inventory schema exists (spec Q8); the flag goes when it does. |
+| Platform ↔ supervisor | `macos` has `launchd`; `linux` has `systemd`, `runit` or `nixos`; any other pairing, and `android`, is refused. | Not in the spec. Android/Termux is deferred (linux-targets ruling 2026-10-29), so `android` is refused rather than mapped to runit. |
+| `nixos` host | Any selected service is refused ("host is nixos-supervised; its units are the Nix configuration's"). With none, the goal file carries `supervision: {"coverage": "deliberately-unmanaged"}` and no unit-writer registry; tendcf's projector reads it as `{"vars":{}}`. | Spec §6.2 item 3, Q3. |
+| Older `schema_version` | Library only (`compile_host(..., schema_version=N)`): 3 renders without the `supervisor` entry; a `nixos` host is refused below 4; anything else is refused. The CLI always renders the current version, and an older file is not schema-validated (tendcf's schema is a const). | Spec §6.2 item 6. |
 | Tombstones | Cannot be rendered: the Site Model has no way to say "absent". | Goal file supports them; the Site Model does not yet. |
 
 ## Conflict check (stage 2)

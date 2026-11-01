@@ -10,6 +10,7 @@ diff before committing it.
 from __future__ import annotations
 
 import copy
+import importlib.util
 import json
 import os
 import shutil
@@ -21,7 +22,7 @@ import pytest
 import yaml
 
 from nix2cf.cli import load_projector, main
-from nix2cf.compile import CompileError, HostSpec, compile_host
+from nix2cf.compile import GOAL_FILE_SCHEMA_VERSION, CompileError, HostSpec, compile_host
 from nix2cf.sitemodel import Schemas, SiteModel, load_document, load_site_model, validate_site_model
 
 REPO = Path(__file__).resolve().parent.parent
@@ -55,13 +56,51 @@ def projector(tendcf: Path):
     return load_projector(tendcf)
 
 
+@pytest.fixture(scope="session")
+def lint(tendcf: Path):
+    """tendcf's schema_lint, for its goal-file cross-file rules (no copy here)."""
+    spec = importlib.util.spec_from_file_location("tendcf_schema_lint", tendcf / "bin" / "schema_lint.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _cross_file_findings(lint, doc: dict) -> list:
+    """Run tendcf's own goal cross-file checks over one rendered goal file."""
+    with lint.capture_findings() as found:
+        lint.check_goal_file_cross_file({"goal-file.json": doc}, "goal-file.json")
+    return list(found)
+
+
 def _model(site: Path) -> SiteModel:
     return load_site_model(site / "services.yml", site / "roles.yml", site / "launchd-writers.yml")
 
 
-def _host(site: Path, name: str = "mac", platform: str = "macos") -> HostSpec:
+def _trust(site: Path, supervisor: str | None = "launchd") -> dict:
+    """The example device-trust domain, with its supervisor entry set, or removed if None."""
     trust = load_document(site / "device-trust.json").data
-    return HostSpec(name=name, platform=platform, key=HOST_KEY, device_trust=trust)
+    if supervisor is None:
+        del trust["entries"]["supervisor"]
+    else:
+        trust["entries"]["supervisor"] = {"host": {"name": supervisor, "state": "present"}}
+    return trust
+
+
+def _host(
+    site: Path,
+    name: str = "mac",
+    platform: str = "macos",
+    supervisor: str = "launchd",
+    trust: dict | None = None,
+) -> HostSpec:
+    if trust is None:
+        trust = _trust(site, supervisor)
+    return HostSpec(name=name, platform=platform, supervisor=supervisor, key=HOST_KEY, device_trust=trust)
+
+
+def _nixos_host(name: str = "get", trust: dict | None = None) -> HostSpec:
+    return _host(SITE, name=name, platform="linux", supervisor="nixos", trust=trust or _trust(SITE, None))
 
 
 def _check_golden(name: str, raw: bytes) -> None:
@@ -81,8 +120,9 @@ def test_site_model_inputs_validate(schemas: Schemas) -> None:
 def test_example_site_mac_golden(schemas: Schemas) -> None:
     result = compile_host(_model(SITE), _host(SITE), schemas)
     doc = result.goal_file
-    assert doc["schema_version"] == 1
+    assert doc["schema_version"] == 4
     assert doc["host"] == HOST_KEY
+    assert doc["domains"]["device-trust"]["entries"]["supervisor"] == {"host": {"name": "launchd", "state": "present"}}
     sup = doc["domains"]["supervision"]
     assert sup["coverage"] == "comprehensive"
     assert set(sup["entries"]["service"]) == {
@@ -130,6 +170,22 @@ def test_output_validates_and_is_canonical(schemas: Schemas) -> None:
     assert rfc8785.dumps(json.loads(result.canonical)) == result.canonical
 
 
+def test_schema_version_matches_tendcf(tendcf: Path) -> None:
+    """The renderer's version is tendcf's schema const (CI checks this too)."""
+    raw = json.loads((tendcf / "schema" / "goal-file.schema.json").read_text())
+    assert GOAL_FILE_SCHEMA_VERSION == raw["properties"]["schema_version"]["const"]
+
+
+def test_rendered_files_pass_tendcf_cross_file_checks(tendcf: Path, schemas: Schemas, lint) -> None:
+    docs = [
+        compile_host(_model(SITE), _host(SITE), schemas).goal_file,
+        compile_host(_model(tendcf / "examples"), _host(SITE), schemas).goal_file,
+        compile_host(_model(SITE), _nixos_host(), schemas).goal_file,
+    ]
+    for doc in docs:
+        assert _cross_file_findings(lint, doc) == []
+
+
 def test_projects_through_tendcf_projector(schemas: Schemas, projector) -> None:
     """The device-side projection accepts what the compiler rendered."""
     result = compile_host(_model(SITE), _host(SITE), schemas)
@@ -152,7 +208,7 @@ def test_pure_and_order_independent(schemas: Schemas) -> None:
 
 def test_role_main_receives_backup_does_not(schemas: Schemas) -> None:
     model = _model(SITE)
-    vps = HostSpec(name="vps-1", platform="macos", key=HOST_KEY, device_trust=_host(SITE).device_trust)
+    vps = _host(SITE, name="vps-1")
     result = compile_host(model, vps, schemas)
     assert "supervision" not in result.goal_file["domains"]  # nothing selected
     assert any("backup/peer of role 'llm-gateway'" in d for d in result.diagnostics)
@@ -166,17 +222,126 @@ def test_non_cfengine_service_is_skipped_loudly(schemas: Schemas) -> None:
     assert any("managed_by 'external'" in d for d in result.diagnostics)
 
 
-def test_unknown_platform_refused(schemas: Schemas) -> None:
+def test_service_platform_mismatch_refused(schemas: Schemas) -> None:
     with pytest.raises(CompileError) as exc:
-        compile_host(_model(SITE), _host(SITE, platform="linux"), schemas)
+        compile_host(_model(SITE), _host(SITE, platform="linux", supervisor="systemd"), schemas)
     assert "platform is 'macos' and the host is 'linux'" in str(exc.value)
 
 
 def test_bad_host_key_refused(schemas: Schemas) -> None:
-    host = HostSpec(name="mac", platform="macos", key="ed25519:short", device_trust=_host(SITE).device_trust)
+    host = HostSpec(
+        name="mac", platform="macos", supervisor="launchd", key="ed25519:short", device_trust=_trust(SITE)
+    )
     with pytest.raises(CompileError) as exc:
         compile_host(_model(SITE), host, schemas)
     assert "64 lowercase hex" in str(exc.value)
+
+
+# --- supervisor (schema v4) -----------------------------------------------------------
+
+def test_supervisor_is_written_when_the_document_omits_it(schemas: Schemas) -> None:
+    host = _host(SITE, trust=_trust(SITE, None))
+    assert "supervisor" not in host.device_trust["entries"]
+    doc = compile_host(_model(SITE), host, schemas).goal_file
+    assert doc["domains"]["device-trust"]["entries"]["supervisor"] == {"host": {"name": "launchd", "state": "present"}}
+    assert "supervisor" not in host.device_trust["entries"]  # the input is not mutated
+
+
+def test_supplied_supervisor_that_disagrees_is_refused(schemas: Schemas) -> None:
+    host = _host(SITE, trust=_trust(SITE, "systemd"))  # document says systemd, host input says launchd
+    with pytest.raises(CompileError) as exc:
+        compile_host(_model(SITE), host, schemas)
+    assert "carries supervisor entry" in str(exc.value) and "'systemd'" in str(exc.value)
+
+
+def test_supplied_malformed_supervisor_is_refused(schemas: Schemas) -> None:
+    trust = _trust(SITE)
+    trust["entries"]["supervisor"] = {"main": {"name": "launchd", "state": "present"}}  # id is not `host`
+    with pytest.raises(CompileError, match="carries supervisor entry"):
+        compile_host(_model(SITE), _host(SITE, trust=trust), schemas)
+
+
+def test_unknown_supervisor_refused(schemas: Schemas) -> None:
+    with pytest.raises(CompileError) as exc:
+        compile_host(_model(SITE), _host(SITE, platform="linux", supervisor="openrc"), schemas)
+    assert "supervisor 'openrc' is not one of" in str(exc.value)
+    assert "there is no default" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    ("platform", "supervisor"),
+    [("macos", "systemd"), ("macos", "nixos"), ("linux", "launchd"), ("android", "runit")],
+)
+def test_platform_supervisor_mismatch_refused(schemas: Schemas, platform: str, supervisor: str) -> None:
+    with pytest.raises(CompileError) as exc:
+        compile_host(_model(SITE), _host(SITE, platform=platform, supervisor=supervisor, trust=_trust(SITE, None)), schemas)
+    assert "Resolution: fix --platform or --supervisor" in str(exc.value) or "no supervisor is decided" in str(exc.value)
+
+
+def _declare_on(model: SiteModel, host: str) -> None:
+    """Make every service of the example site apply to `host` on any platform."""
+    for rec in model.services.data["services"]:
+        rec["platform"] = "any"
+        rec["hosts"] = [host]
+        rec.pop("role", None)
+
+
+def test_nixos_host_without_services_is_deliberately_unmanaged(schemas: Schemas, projector, lint) -> None:
+    result = compile_host(_model(SITE), _nixos_host(), schemas)
+    doc = result.goal_file
+    assert doc["schema_version"] == 4
+    assert doc["domains"]["supervision"] == {"coverage": "deliberately-unmanaged"}
+    assert doc["domains"]["device-trust"]["entries"]["supervisor"] == {"host": {"name": "nixos", "state": "present"}}
+    assert set(doc["domains"]) == {"device-trust", "supervision"}  # no unit-writer registry travels
+    assert schemas.errors("goal-file.schema.json", doc) == []
+    assert _cross_file_findings(lint, doc) == []
+    raw = projector.project(doc)
+    assert raw == b'{"vars":{}}'
+    assert projector.validate_projection(raw) == []
+    _check_golden("nixos-get.goal-file.json", result.canonical)
+
+
+def test_nixos_host_refuses_any_selected_service(schemas: Schemas) -> None:
+    model = _model(SITE)
+    _declare_on(model, "get")
+    with pytest.raises(CompileError) as exc:
+        compile_host(model, _nixos_host(), schemas)
+    msg = str(exc.value)
+    assert "host is nixos-supervised; its units are the Nix configuration's" in msg
+    assert "'caddy'" in msg and "services.yml:" in msg
+
+
+@pytest.mark.parametrize("supervisor", ["systemd", "runit"])
+def test_unrendered_supervisor_refuses_selected_services_but_not_none(schemas: Schemas, supervisor: str) -> None:
+    host = _host(SITE, name="get", platform="linux", supervisor=supervisor, trust=_trust(SITE, None))
+    model = _model(SITE)
+    _declare_on(model, "get")
+    with pytest.raises(CompileError, match="unit renderer is not built"):
+        compile_host(model, host, schemas)
+    # With nothing selected it states the supervisor and nothing else.
+    doc = compile_host(_model(SITE), host, schemas).goal_file
+    assert doc["domains"]["device-trust"]["entries"]["supervisor"]["host"]["name"] == supervisor
+    assert "supervision" not in doc["domains"]
+    assert schemas.errors("goal-file.schema.json", doc) == []
+
+
+def test_nixos_refused_below_schema_v4() -> None:
+    for version in (3, 2, 1):
+        with pytest.raises(CompileError, match="cannot state"):
+            compile_host(_model(SITE), _nixos_host(), None, schema_version=version)
+
+
+def test_schema_v3_drops_the_supervisor_entry_for_other_hosts() -> None:
+    result = compile_host(_model(SITE), _host(SITE), None, schema_version=3)
+    doc = result.goal_file
+    assert doc["schema_version"] == 3
+    assert "supervisor" not in doc["domains"]["device-trust"]["entries"]
+    assert not any("rendered at schema_version" in d for d in result.diagnostics)  # no schema given: only the no-schema note
+
+
+def test_unsupported_schema_version_refused() -> None:
+    with pytest.raises(CompileError, match="not one this compiler renders"):
+        compile_host(_model(SITE), _host(SITE), None, schema_version=5)
 
 
 # --- conflict check -------------------------------------------------------------
@@ -263,7 +428,7 @@ def _run(args: list[str], tendcf: Path) -> subprocess.CompletedProcess[bytes]:
 
 def test_cli_buildfile_matches_library(tendcf: Path, schemas: Schemas) -> None:
     proc = _run(
-        ["buildfile", "--host", "mac", "--host-key", HOST_KEY, "--device-trust", str(SITE / "device-trust.json"), "--site", str(SITE)],
+        ["buildfile", "--host", "mac", "--supervisor", "launchd", "--host-key", HOST_KEY, "--device-trust", str(SITE / "device-trust.json"), "--site", str(SITE)],
         tendcf,
     )
     assert proc.returncode == 0, proc.stderr.decode()
@@ -272,12 +437,42 @@ def test_cli_buildfile_matches_library(tendcf: Path, schemas: Schemas) -> None:
 
 def test_cli_project_matches_projector(tendcf: Path, schemas: Schemas, projector) -> None:
     proc = _run(
-        ["buildfile", "--host", "mac", "--host-key", HOST_KEY, "--device-trust", str(SITE / "device-trust.json"), "--site", str(SITE), "--project"],
+        ["buildfile", "--host", "mac", "--supervisor", "launchd", "--host-key", HOST_KEY, "--device-trust", str(SITE / "device-trust.json"), "--site", str(SITE), "--project"],
         tendcf,
     )
     assert proc.returncode == 0, proc.stderr.decode()
     expected = projector.project(compile_host(_model(SITE), _host(SITE), schemas).goal_file)
     assert proc.stdout == expected
+
+
+def test_cli_requires_supervisor(tendcf: Path) -> None:
+    proc = _run(
+        ["buildfile", "--host", "mac", "--host-key", HOST_KEY, "--device-trust", str(SITE / "device-trust.json"), "--site", str(SITE)],
+        tendcf,
+    )
+    assert proc.returncode == 2 and b"--supervisor" in proc.stderr and proc.stdout == b""
+
+
+def test_cli_nixos_host_projects_to_empty_vars(tendcf: Path, schemas: Schemas, projector, tmp_path: Path) -> None:
+    trust = tmp_path / "device-trust.json"
+    trust.write_text(json.dumps(_trust(SITE, None)))
+    args = ["buildfile", "--host", "get", "--platform", "linux", "--supervisor", "nixos", "--host-key", HOST_KEY,
+            "--device-trust", str(trust), "--site", str(SITE)]
+    proc = _run(args, tendcf)
+    assert proc.returncode == 0, proc.stderr.decode()
+    assert proc.stdout == compile_host(_model(SITE), _nixos_host(), schemas).canonical
+    projected = _run([*args, "--project"], tendcf)
+    assert projected.returncode == 0, projected.stderr.decode()
+    assert projected.stdout == projector.project(json.loads(proc.stdout)) == b'{"vars":{}}'
+
+
+def test_cli_supervisor_disagreeing_with_document_exits_1(tendcf: Path) -> None:
+    proc = _run(
+        ["buildfile", "--host", "mac", "--supervisor", "systemd", "--platform", "linux", "--host-key", HOST_KEY,
+         "--device-trust", str(SITE / "device-trust.json"), "--site", str(SITE)],
+        tendcf,
+    )
+    assert proc.returncode == 1 and b"carries supervisor entry" in proc.stderr and proc.stdout == b""
 
 
 def test_cli_refusal_exits_1(tendcf: Path, tmp_path: Path) -> None:
@@ -287,7 +482,7 @@ def test_cli_refusal_exits_1(tendcf: Path, tmp_path: Path) -> None:
     doc["services"][1]["launchd"]["label"] = doc["services"][0]["launchd"]["label"]
     (site / "services.yml").write_text(yaml.safe_dump(doc))
     proc = _run(
-        ["buildfile", "--host", "mac", "--host-key", HOST_KEY, "--device-trust", str(site / "device-trust.json"), "--site", str(site)],
+        ["buildfile", "--host", "mac", "--supervisor", "launchd", "--host-key", HOST_KEY, "--device-trust", str(site / "device-trust.json"), "--site", str(site)],
         tendcf,
     )
     assert proc.returncode == 1
@@ -301,7 +496,7 @@ def test_cli_schema_invalid_input_exits_1(tendcf: Path, tmp_path: Path) -> None:
     doc["domains"]["macos-user-daemons"].pop("opt_out_reason")  # opt-out with no reason
     (site / "services.yml").write_text(yaml.safe_dump(doc))
     proc = _run(
-        ["buildfile", "--host", "mac", "--host-key", HOST_KEY, "--device-trust", str(site / "device-trust.json"), "--site", str(site)],
+        ["buildfile", "--host", "mac", "--supervisor", "launchd", "--host-key", HOST_KEY, "--device-trust", str(site / "device-trust.json"), "--site", str(site)],
         tendcf,
     )
     assert proc.returncode == 1

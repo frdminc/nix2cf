@@ -1,7 +1,7 @@
 """`nix2cf` command line.
 
-    nix2cf buildfile --host mac --host-key ed25519:… --device-trust trust.json \
-        --site examples/site [--tendcf ~/src/tendcf] [--project] [-o OUT]
+    nix2cf buildfile --host mac --platform macos --supervisor launchd \
+        --host-key ed25519:… --device-trust trust.json --site examples/site [--tendcf ~/src/tendcf] [--project] [-o OUT]
 
 Renders exactly what one host would receive — the Bcfg2 `buildfile` shape the
 guide (§4) and the paper (§6.2) say to build first — without touching the
@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .compile import CompileError, HostSpec, compile_host
+from .compile import SUPERVISORS, CompileError, HostSpec, compile_host
 from .sitemodel import SITE_FILES, Schemas, SiteModel, SiteModelError, load_document, load_site_model, validate_site_model
 
 
@@ -88,7 +88,13 @@ def cmd_buildfile(args: argparse.Namespace) -> int:
             print(f"nix2cf: {len(problems)} Site Model schema finding(s); not compiled", file=sys.stderr)
             return 1
 
-    host = HostSpec(name=args.host, platform=args.platform, key=args.host_key, device_trust=trust_doc.data)
+    host = HostSpec(
+        name=args.host,
+        platform=args.platform,
+        supervisor=args.supervisor,
+        key=args.host_key,
+        device_trust=trust_doc.data,
+    )
     try:
         result = compile_host(model, host, schemas)
     except CompileError as exc:
@@ -151,7 +157,17 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--host", required=True, help="host name as used in the Site Model (hosts:, roles)")
     b.add_argument("--host-key", required=True, help="device public key, ed25519:<64 hex>")
     b.add_argument("--platform", default="macos", choices=["macos", "linux", "android"])
-    b.add_argument("--device-trust", required=True, help="JSON/YAML file holding the goal file's device-trust domain verbatim")
+    b.add_argument(
+        "--supervisor",
+        required=True,
+        choices=list(SUPERVISORS),
+        help="what runs the host's units; no default. Written into device-trust.entries.supervisor",
+    )
+    b.add_argument(
+        "--device-trust",
+        required=True,
+        help="JSON/YAML file holding the goal file's device-trust domain; its supervisor entry, if any, must match --supervisor",
+    )
     b.add_argument("--site", help="directory holding services.yml, roles.yml, launchd-writers.yml")
     b.add_argument("--services")
     b.add_argument("--roles")

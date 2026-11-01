@@ -16,8 +16,8 @@ Stages (guide §4):
                resource, every writer and location, the values, and a
                resolution. Never last-wins;
   3. inference — NOT implemented. Guide §10: "Inference does not start until
-               real type definitions exist on two platforms", and goal-file
-               v1 carries no edge kind to render into (reconciliation §8);
+               real type definitions exist on two platforms", and the goal
+               file carries no edge kind to render into (reconciliation §8);
   4. render  — RFC 8785 (JCS) bytes, no trailing newline, no defaults, no
                prose, no floats, no nulls (reconciliation §2.1).
 
@@ -37,7 +37,17 @@ import rfc8785
 
 from .sitemodel import GOAL_FILE_SCHEMA, Document, Schemas, SiteModel
 
-GOAL_FILE_SCHEMA_VERSION = 1
+# Must equal the `const` of `tendcf/schema/goal-file.schema.json`
+# `schema_version`; CI fails when it does not (.github/workflows/check.yml).
+GOAL_FILE_SCHEMA_VERSION = 4
+# `supervisor` entered the device-trust domain at v4 (schema-v4 spec §2.1).
+# The `nixos` host exists only from v4 on (spec §6.2 item 6): the one v3
+# spelling, a `nixos` unit-writer, described nothing.
+SUPERVISOR_SCHEMA_VERSION = 4
+# Older versions this compiler can still state. The launchd shape did not
+# change between v1 and v4; only v3 and v4 are claimed, because v3 is the one
+# the spec names ("Non-nixos hosts may render at 3 by dropping the entry").
+SUPPORTED_SCHEMA_VERSIONS = (3, 4)
 
 # The one state domain the reference projector reads
 # (`tendcf/bin/projector.py:PROJECTING_DOMAIN`). The Site Model's own domain
@@ -53,11 +63,26 @@ GOAL_FILE_SCHEMA_VERSION = 1
 SUPERVISION_DOMAIN = "supervision"
 
 HOST_KEY = re.compile(r"^ed25519:[0-9a-f]{64}\Z")
-# `launchd` is the only adapter that exists (guide §4: "It handles launchd
+# The closed set of `device-trust.entries.supervisor.host.name`
+# (goal-file.schema.json `supervisor_map`). Required input, no default (spec
+# Q1, house rule "no defaults"): the compiler never guesses what runs units.
+SUPERVISORS = ("launchd", "systemd", "runit", "nixos")
+# Which supervisors a platform can have. A mismatch is a compile error, not a
+# guess. TODO(operator): Android/Termux is deferred (linux-targets.md ruling
+# 2026-10-29), so `android` has no row and is refused rather than mapped to
+# runit; inventory (spec Q8) will carry both facts and make this table moot.
+PLATFORM_SUPERVISORS = {
+    "macos": ("launchd",),
+    "linux": ("systemd", "runit", "nixos"),
+}
+# `launchd` is the only adapter that renders (guide §4: "It handles launchd
 # only"; §18 Step 1). The goal file's `unit` oneOf also spells systemd and
-# runit, but nothing renders them yet, so a host on another platform is a
-# compile error, not a guess.
-PLATFORM_SUPERVISOR = {"macos": "launchd"}
+# runit, but the systemd/runit renderer is step 6 proper, so a host on one of
+# those with a selected service is a compile error, not a guess. (So nix2cf
+# writes none of the v2 systemd `restart`/`wanted_by` fields or the systemd
+# argv/working_dir alphabet: there is no systemd unit to put them in.)
+RENDERED_SUPERVISORS = frozenset({"launchd"})
+NIXOS_REFUSAL = "host is nixos-supervised; its units are the Nix configuration's"
 
 # Per-supervisor default for the REQUIRED `working_dir` (goal-file schema:
 # "The compiler resolves the per-supervisor default ('/' for launchd and
@@ -103,12 +128,17 @@ class HostSpec:
 
     name: str
     platform: str
+    # Host input next to `platform` (spec Q8), required: no default. Written
+    # into `device-trust.entries.supervisor`; one of SUPERVISORS.
+    supervisor: str
     key: str
-    # The goal file's `device-trust` domain, verbatim. The compiler cannot
+    # The goal file's `device-trust` domain, as supplied. The compiler cannot
     # derive it: the trust-policy shape is not yet in the Site Model (guide
     # §18 Step 0 remaining), and the digests (policy tree, agent binary) come
-    # from the release path (Step 6). Validated as part of the whole goal
-    # file against goal-file.schema.json.
+    # from the release path (Step 6). The compiler adds the `supervisor`
+    # entry from `supervisor` above; a supplied `supervisor` entry that
+    # differs is refused. Validated as part of the whole goal file against
+    # goal-file.schema.json.
     device_trust: dict[str, Any]
 
 
@@ -322,22 +352,134 @@ def _coverage(domain: dict[str, Any]) -> str:
     return domain["opt_out_reason"]
 
 
-def render_goal_file(model: SiteModel, host: HostSpec, selected: list[Selected]) -> tuple[dict[str, Any], list[str]]:
-    """Build the goal-file document. Returns (document, errors)."""
-    errors: list[str] = []
-    supervisor = PLATFORM_SUPERVISOR.get(host.platform)
-    if supervisor is None:
-        return {}, [
-            f"host {host.name!r} is {host.platform!r}; the only supervisor adapter "
-            f"that exists is launchd (macos). No goal file rendered"
-        ]
+def _supplied_supervisor_error(host: HostSpec) -> str | None:
+    """A supervisor entry in the supplied device-trust document that is not exactly
+    the one this host input implies: two spellings of one fact, one of them wrong."""
+    entries = host.device_trust.get("entries") if isinstance(host.device_trust, dict) else None
+    if not isinstance(entries, dict) or "supervisor" not in entries:
+        return None
+    wanted = {"host": {"name": host.supervisor, "state": "present"}}
+    if entries["supervisor"] == wanted:
+        return None
+    return (
+        f"the supplied device-trust document carries supervisor entry "
+        f"{entries['supervisor']!r}, but the host input says {host.supervisor!r} "
+        f"(expected {wanted!r}). Resolution: make the document and --supervisor agree, "
+        "or drop the entry from the document"
+    )
 
-    domains: dict[str, Any] = {"device-trust": copy.deepcopy(host.device_trust)}
+
+def host_errors(host: HostSpec, schema_version: int = GOAL_FILE_SCHEMA_VERSION) -> list[str]:
+    """Refusals that depend on the host's own facts, not on the Site Model."""
+    errors: list[str] = []
+    if not HOST_KEY.match(host.key):
+        errors.append(f"host key {host.key!r} is not `ed25519:` + 64 lowercase hex")
+    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
+        errors.append(
+            f"schema_version {schema_version!r} is not one this compiler renders "
+            f"(supported: {list(SUPPORTED_SCHEMA_VERSIONS)})"
+        )
+    if host.supervisor not in SUPERVISORS:
+        errors.append(
+            f"host {host.name!r}: supervisor {host.supervisor!r} is not one of "
+            f"{list(SUPERVISORS)}. Resolution: state the host's supervisor; there is no default"
+        )
+    else:
+        supplied = _supplied_supervisor_error(host)
+        if supplied is not None:
+            errors.append(supplied)
+        allowed = PLATFORM_SUPERVISORS.get(host.platform)
+        if allowed is None:
+            errors.append(
+                f"host {host.name!r} is {host.platform!r}; no supervisor is decided for "
+                f"that platform (known: {sorted(PLATFORM_SUPERVISORS)})"
+            )
+        elif host.supervisor not in allowed:
+            errors.append(
+                f"host {host.name!r} is {host.platform!r} with supervisor "
+                f"{host.supervisor!r}; a {host.platform} host has one of {list(allowed)}. "
+                "Resolution: fix --platform or --supervisor"
+            )
+        if host.supervisor == "nixos" and schema_version < SUPERVISOR_SCHEMA_VERSION:
+            errors.append(
+                f"host {host.name!r} has supervisor 'nixos', which schema_version "
+                f"{schema_version} cannot state (it exists from "
+                f"{SUPERVISOR_SCHEMA_VERSION}; the only older spelling, an `org.nixos.*` "
+                "unit-writer, described nothing). Resolution: render at "
+                f"schema_version {SUPERVISOR_SCHEMA_VERSION}"
+            )
+    return errors
+
+
+def supervisor_refusals(host: HostSpec, selected: list[Selected]) -> list[str]:
+    """Selected services this host's supervisor cannot be given a unit for."""
+    if not selected or host.supervisor in RENDERED_SUPERVISORS:
+        return []
+    names = ", ".join(f"{s.record['name']!r} ({s.where})" for s in selected)
+    if host.supervisor == "nixos":
+        return [
+            f"host {host.name!r}: {NIXOS_REFUSAL}; refusing selected service(s): {names}. "
+            "Resolution: move the service off this host, or declare it in the NixOS configuration"
+        ]
+    return [
+        f"host {host.name!r} has supervisor {host.supervisor!r}, whose unit renderer is "
+        f"not built (tendcf linux-targets step 6); refusing selected service(s): {names}"
+    ]
+
+
+def _trust_with_supervisor(host: HostSpec, schema_version: int) -> tuple[dict[str, Any], list[str]]:
+    """The device-trust domain with the host's `supervisor` entry stated.
+
+    A disagreeing supplied entry is refused up front by host_errors(); here
+    it is refused again so render_goal_file stays safe on its own. Below v4
+    the entry does not exist, so it is dropped (a matching one only).
+    """
+    trust = copy.deepcopy(host.device_trust)
+    entries = trust.get("entries") if isinstance(trust, dict) else None
+    if not isinstance(entries, dict):
+        return trust, ["the supplied device-trust document has no `entries` object"]
+    supplied = _supplied_supervisor_error(host)
+    if supplied is not None:
+        return trust, [supplied]
+    wanted = {"host": {"name": host.supervisor, "state": "present"}}
+    if schema_version >= SUPERVISOR_SCHEMA_VERSION:
+        entries["supervisor"] = wanted
+    else:
+        entries.pop("supervisor", None)
+    return trust, []
+
+
+def render_goal_file(
+    model: SiteModel,
+    host: HostSpec,
+    selected: list[Selected],
+    schema_version: int = GOAL_FILE_SCHEMA_VERSION,
+) -> tuple[dict[str, Any], list[str]]:
+    """Build the goal-file document. Returns (document, errors).
+
+    Expects `host_errors(host, schema_version)` to be empty (compile_host checks).
+    """
+    errors: list[str] = supervisor_refusals(host, selected)
+    if errors:
+        return {}, errors
+    supervisor = host.supervisor
+
+    trust, errs = _trust_with_supervisor(host, schema_version)
+    if errs:
+        return {}, errs
+    domains: dict[str, Any] = {"device-trust": trust}
     doc: dict[str, Any] = {
-        "schema_version": GOAL_FILE_SCHEMA_VERSION,
+        "schema_version": schema_version,
         "host": host.key,
         "domains": domains,
     }
+    if supervisor == "nixos":
+        # Q3: the NixOS configuration is the one unit writer; tendcf reports
+        # and refuses there. `deliberately-unmanaged` with no entries is what
+        # the schema's nixos member requires, and what the projector reads as
+        # `{"vars":{}}`.
+        domains[SUPERVISION_DOMAIN] = {"coverage": "deliberately-unmanaged"}
+        return doc, errors
     if not selected:
         return doc, errors
 
@@ -498,16 +640,27 @@ def canonical_bytes(doc: dict[str, Any]) -> bytes:
         raise CompileError([f"goal file carries a value JCS cannot represent: {type(exc).__name__}: {exc}"]) from exc
 
 
-def compile_host(model: SiteModel, host: HostSpec, schemas: Schemas | None = None) -> CompileResult:
-    """The whole path for one host. Raises CompileError; never emits a wrong file."""
-    errors: list[str] = []
+def compile_host(
+    model: SiteModel,
+    host: HostSpec,
+    schemas: Schemas | None = None,
+    schema_version: int = GOAL_FILE_SCHEMA_VERSION,
+) -> CompileResult:
+    """The whole path for one host. Raises CompileError; never emits a wrong file.
+
+    `schema_version` is the library's only way to ask for an older file (spec
+    §6.2 item 6): the CLI always renders the current one. `schemas` validates
+    against tendcf's current schema only, so an older version is not
+    schema-checked here.
+    """
+    errors: list[str] = host_errors(host, schema_version)
     diagnostics: list[str] = []
-    if not HOST_KEY.match(host.key):
-        errors.append(f"host key {host.key!r} is not `ed25519:` + 64 lowercase hex")
 
     selected, diag, errs = select_services(model, host)
     diagnostics += diag
     errors += errs
+    if host.supervisor in SUPERVISORS:
+        errors += supervisor_refusals(host, selected)
     if errors:
         raise CompileError(errors)
 
@@ -517,7 +670,7 @@ def compile_host(model: SiteModel, host: HostSpec, schemas: Schemas | None = Non
     if errors:
         raise CompileError(errors)
 
-    doc, errs = render_goal_file(model, host, selected)
+    doc, errs = render_goal_file(model, host, selected, schema_version)
     errors += errs
     if errors:
         raise CompileError(errors)
@@ -526,7 +679,12 @@ def compile_host(model: SiteModel, host: HostSpec, schemas: Schemas | None = Non
     if bad:
         raise CompileError([f"not NFC-normalized (JCS cannot see this; reconciliation §2.1): {p}" for p in bad])
 
-    if schemas is not None:
+    if schemas is not None and schema_version != GOAL_FILE_SCHEMA_VERSION:
+        diagnostics.append(
+            f"rendered at schema_version {schema_version}: NOT validated, the tendcf "
+            f"schema in hand is version {GOAL_FILE_SCHEMA_VERSION}"
+        )
+    elif schemas is not None:
         problems = schemas.errors(GOAL_FILE_SCHEMA, doc)
         if problems:
             raise CompileError(
