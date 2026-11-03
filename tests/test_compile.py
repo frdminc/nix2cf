@@ -358,9 +358,10 @@ def test_schema_v3_with_schema_is_noted_not_validated(schemas: Schemas) -> None:
     assert any("NOT validated" in d for d in result.diagnostics)
 
 
-def test_schema_v4_differs_from_current_only_in_the_version() -> None:
-    """Why 4 stays supported: v5 changed nothing nix2cf emits (spec §2.1), so
-    the v4 file is the current file with the old version number."""
+def test_schema_v4_and_v5_differ_only_in_the_version_for_current_inputs() -> None:
+    """For inputs valid under the current Site Model contract, the v4 file is the
+    current file with the old version number. Not a claim about arbitrary
+    historical v4 output: see test_dpkg_writer_renders_at_v4_but_is_refused_at_v5."""
     for host in (_host(SITE), _nixos_host()):
         old = compile_host(_model(SITE), host, None, schema_version=4).goal_file
         new = compile_host(_model(SITE), host, None).goal_file
@@ -368,11 +369,16 @@ def test_schema_v4_differs_from_current_only_in_the_version() -> None:
         assert {**old, "schema_version": 5} == new
 
 
-def test_dpkg_writer_is_refused_at_v5(schemas: Schemas) -> None:
-    """`dpkg` left the unit-writer enum in v5 (a package claim is its only spelling)."""
+def test_dpkg_writer_renders_at_v4_but_is_refused_at_v5(schemas: Schemas) -> None:
+    """`dpkg` left the unit-writer enum in v5 (a package claim is its only spelling).
+    v4 permitted it, so an unused `dpkg` writer in an old Site Model still renders
+    at v4 (unvalidated, as every older version is) and is refused at v5."""
     model = _model(SITE)
-    model.launchd_writers.data["writers"][3]["writer"] = "dpkg"  # dev.mise.*
+    writer = next(w for w in model.launchd_writers.data["writers"] if w["prefix"] == "dev.mise.*")
+    writer["writer"] = "dpkg"
     assert validate_site_model(model, schemas) != []  # launchd-writers.schema.json dropped it too
+    old = compile_host(model, _host(SITE), None, schema_version=4).goal_file
+    assert old["domains"]["supervision"]["entries"]["unit-writer"]["dev.mise.*"]["writer"] == "dpkg"
     with pytest.raises(CompileError, match="dpkg"):
         compile_host(model, _host(SITE), schemas)
 

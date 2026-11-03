@@ -44,14 +44,16 @@ GOAL_FILE_SCHEMA_VERSION = 5
 # The `nixos` host exists only from v4 on (spec §6.2 item 6): the one v3
 # spelling, a `nixos` unit-writer, described nothing.
 SUPERVISOR_SCHEMA_VERSION = 4
-# Older versions this compiler can still state: 3 and 4. For every host
-# nix2cf renders, the older file is the current one with a different
-# `schema_version` (v4; v5 changed only the unit-writer key language, which
-# is a superset of every launchd prefix nix2cf emits, retired the `dpkg`
-# writer and added `tendcf-install` and `unit-package`, none of which nix2cf
-# emits) or without the `supervisor` entry (v3). The spec names no downgrade
-# path at v5 and no device holds a baseline (spec §4 item 1); 3 and 4 stay as
-# the shapes a not-yet-migrated device could still hold.
+# Older versions this compiler can still state: 3 and 4. For inputs valid
+# under the current Site Model contract, rendering at v4 and v5 differs only
+# in `schema_version` (v5 changed the unit-writer key language, which is a
+# superset of every launchd prefix nix2cf emits, retired the `dpkg` writer and
+# added `tendcf-install` and `unit-package`), and v3 differs by lacking the
+# `supervisor` entry. This does not establish migration compatibility for
+# arbitrary historical v4 output: v4 permitted `dpkg` unit-writer claims,
+# which v5 rejects. Older-version output is never schema-validated. The spec
+# names no downgrade path at v5 and no device holds a baseline (spec §4 item
+# 1); 3 and 4 stay as the shapes a not-yet-migrated device could still hold.
 # The current version is derived, so a bump of GOAL_FILE_SCHEMA_VERSION cannot
 # leave the renderer refusing its own version. The literals 3 and 4 are NOT
 # derived: re-justify them (is that still a shape a device may hold?) at every
