@@ -358,15 +358,33 @@ def test_schema_v3_with_schema_is_noted_not_validated(schemas: Schemas) -> None:
     assert any("NOT validated" in d for d in result.diagnostics)
 
 
-def test_schema_v4_and_v5_differ_only_in_the_version_for_current_inputs() -> None:
+def _host_shapes() -> dict[str, HostSpec]:
+    """Every host shape nix2cf renders: a launchd host with services, a nixos
+    host, and service-free systemd and runit hosts (their unit renderers are not
+    built, so a selected service is refused; none selected renders the supervisor
+    entry alone)."""
+    return {
+        "launchd": _host(SITE),
+        "nixos": _nixos_host(),
+        "systemd": _host(SITE, name="get", platform="linux", supervisor="systemd", trust=_trust(SITE, None)),
+        "runit": _host(SITE, name="get", platform="linux", supervisor="runit", trust=_trust(SITE, None)),
+    }
+
+
+@pytest.mark.parametrize("shape", ["launchd", "nixos", "systemd", "runit"])
+def test_schema_v4_and_v5_differ_only_in_the_version_for_current_inputs(schemas: Schemas, shape: str) -> None:
     """For inputs valid under the current Site Model contract, the v4 file is the
-    current file with the old version number. Not a claim about arbitrary
-    historical v4 output: see test_dpkg_writer_renders_at_v4_but_is_refused_at_v5."""
-    for host in (_host(SITE), _nixos_host()):
-        old = compile_host(_model(SITE), host, None, schema_version=4).goal_file
-        new = compile_host(_model(SITE), host, None).goal_file
-        assert old["schema_version"] == 4 and new["schema_version"] == 5
-        assert {**old, "schema_version": 5} == new
+    current file with the old version number, for every host shape. The v5 file is
+    validated against tendcf's schemas (the v4 file cannot be: the schema is a
+    const). Not a claim about arbitrary historical v4 output: see
+    test_dpkg_writer_renders_at_v4_but_is_refused_at_v5."""
+    host = _host_shapes()[shape]
+    old = compile_host(_model(SITE), host, None, schema_version=4).goal_file
+    new = compile_host(_model(SITE), host, schemas).goal_file  # validates against the v5 schema
+    assert old["schema_version"] == 4 and new["schema_version"] == 5
+    assert new["domains"]["device-trust"]["entries"]["supervisor"]["host"]["name"] == host.supervisor
+    assert {**old, "schema_version": 5} == new
+    assert schemas.errors("goal-file.schema.json", new) == []
 
 
 def test_dpkg_writer_renders_at_v4_but_is_refused_at_v5(schemas: Schemas) -> None:
