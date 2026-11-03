@@ -61,11 +61,12 @@ overridden. Never use `route-override`, `--est-pct`, `--min-headroom 0` or
      order:
      1. astra: `acp-dispatch codex --model gpt-6-astra --kind frontier --effort high --perm read-only --frontier-reason "<repo> standing rule: cross-model review" --name NAME -f BRIEF -C WORKTREE`
      2. Fable: `acp-dispatch claude --model fable --kind frontier --effort high --perm read-only --frontier-reason "..." --name NAME -f BRIEF -C WORKTREE`
-     3. Gemini 4 Argon: `acp-run agy --model gemini-4-argon --effort high -C WORKTREE -f BRIEF`, run with read-only instructions in the brief. Argon was probed working on 2026-10-31 and has its own weekly window. Use `acp-run` until djbclark-ade's Argon frontier wiring lands; until then, record the model, effort and `aiuse` reading in the PR body yourself.
+     3. Gemini 4 Argon: `acp-dispatch agy --model gemini-4-argon --kind frontier --effort high --perm all --frontier-reason "<repo> standing rule: cross-model review" --name NAME -f BRIEF -C WORKTREE`. acp-run has no verified read-only mode for agy, so put read-only instructions in BRIEF and check the worktree diff before and after the review. That restricts Argon by instruction only, not by a read-only sandbox. Argon is fallback-only: it stands in when astra or Fable is short. Its frontier wiring landed in djbclark-ade PR 224 (merged 2026-11-02).
    - A pool is **short** when `acp-dispatch` answers exit 5 (`unavailable`:
-     wont-fit, inflight, headroom or preflight), when `aiuse --available --json`
-     lists it `usable_now: false`, or, for Argon, when `acp-run agy` fails on
-     quota. Short means move to the next model in the order, never force it.
+     wont-fit, inflight, headroom or preflight), or when `aiuse --available --json`
+     lists it `usable_now: false`. Argon with no fresh `aiuse` reading counts
+     as short too: acp-dispatch refuses it as headroom ("no fresh reading").
+     Short means move to the next model in the order, never force it.
      Say in the PR body which model was short and why. **Check the actual
      dispatch, never infer availability from the config alone.** Run the
      intended command with `--dry-run`, preserving its model, kind, effort,
@@ -73,16 +74,25 @@ overridden. Never use `route-override`, `--est-pct`, `--min-headroom 0` or
      (or `would_refuse_class` with `--json`), not just the exit status:
      dry-run returns 0 for predicted headroom, fit and concurrency refusals.
      It skips preflight, so no predicted refusal is not proof of availability;
-     the real dispatch must still pass its checks. The `codex:frontier`
-     estimate uses comparable measured history: on 2026-11-01 the selected
-     machine-wide history for astra at high effort held 14 matching records,
-     and the scalar and weekly-window estimates were both 2 percentage points
-     (upper median). The configured 60% fallback floor applies when the
-     selected history has fewer than three measurements for the scalar or the
-     relevant quota window; three measurements overall do not release every
-     window's floor. On 2026-10-31 a lead treated the configured 60% fallback
-     as a permanent minimum and declared astra short at 45% remaining. That
-     comparison alone did not establish that astra was short.
+     the real dispatch must still pass its checks. **Astra's fallback estimate
+     floor and estimate cap in these two repos are 20 percentage points**
+     (djbclark, 2026-11-01). The `codex:frontier` estimate uses comparable
+     measured history. The configured fallback floor applies separately when
+     the scalar or a quota window has fewer than three comparable measurements;
+     three measurements overall do not release every window's floor.
+     In tendcf and nix2cf the fallback floor is 20, and the resulting scalar
+     and per-window estimates are also capped at 20: a measured median of 70
+     becomes 20, while a median of 2 from sufficient history stays 2.
+     This is not a permanent minimum of 20% quota remaining; headroom, fit,
+     in-flight reservation and the other dispatch checks still apply.
+     The override is configured in djbclark-ade's `config/routing.toml` at
+     `[dispatch.repo_overrides.<repo>.estimate_floor]`, selected by the
+     repository name from `-C`'s `origin` remote. Every other repository keeps
+     the configured 60-point `codex:frontier` fallback floor, which sufficient
+     comparable history can replace. On 2026-10-31 a lead treated the 60% fallback as a
+     permanent minimum and declared astra short at 45% remaining. That
+     comparison alone did not establish that astra was short. Only the dry-run
+     and the dispatch decide.
    - Design rulings (a `schema_version` bump, the privilege or enforcement
      scope on a host, a deploy plan, the unit-writer or consent-diff design)
      get two independent frontier reviews, astra and Fable. Argon stands in
@@ -100,9 +110,8 @@ overridden. Never use `route-override`, `--est-pct`, `--min-headroom 0` or
    reservation (`acp-dispatch` exit 5); per-wave frontier caps
    (`config/gates.toml [frontier]`); no Fable `xhigh`/`max` without djbclark's
    approval; one astra slice at a time (four at once emptied Codex's 5-hour
-   window on 2026-10-18). Every astra or Fable review goes through
-   `acp-dispatch --kind frontier`, never a hand-run `acp-run`. Argon is the
-   one exception, for the reason given in item 3.
+   window on 2026-10-18). Every astra, Fable or Argon review goes through
+   `acp-dispatch --kind frontier`, never a hand-run `acp-run`.
 5. **Gemini 4 Carbon** (announced 2026-10-28, not yet reachable by us):
    recheck weekly with `acp-run agy --info --model gemini-4-carbon` and
    `aiuse --available --json`. When it is reachable, adopt it as the Google
