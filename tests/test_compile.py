@@ -120,7 +120,7 @@ def test_site_model_inputs_validate(schemas: Schemas) -> None:
 def test_example_site_mac_golden(schemas: Schemas) -> None:
     result = compile_host(_model(SITE), _host(SITE), schemas)
     doc = result.goal_file
-    assert doc["schema_version"] == 4
+    assert doc["schema_version"] == GOAL_FILE_SCHEMA_VERSION == 5
     assert doc["host"] == HOST_KEY
     assert doc["domains"]["device-trust"]["entries"]["supervisor"] == {"host": {"name": "launchd", "state": "present"}}
     sup = doc["domains"]["supervision"]
@@ -302,7 +302,7 @@ def test_nixos_host_without_services_is_deliberately_unmanaged(tendcf: Path, sch
     # no-op on a file with no entries): drift in either repo shows up here.
     assert result.canonical == (tendcf / "deploy" / "linux" / "passthrough" / "goal-file.json").read_bytes()
     doc = result.goal_file
-    assert doc["schema_version"] == 4
+    assert doc["schema_version"] == GOAL_FILE_SCHEMA_VERSION == 5
     assert doc["domains"]["supervision"] == {"coverage": "deliberately-unmanaged"}
     assert doc["domains"]["device-trust"]["entries"]["supervisor"] == {"host": {"name": "nixos", "state": "present"}}
     assert set(doc["domains"]) == {"device-trust", "supervision"}  # no unit-writer registry travels
@@ -358,6 +358,25 @@ def test_schema_v3_with_schema_is_noted_not_validated(schemas: Schemas) -> None:
     assert any("NOT validated" in d for d in result.diagnostics)
 
 
+def test_schema_v4_differs_from_current_only_in_the_version() -> None:
+    """Why 4 stays supported: v5 changed nothing nix2cf emits (spec §2.1), so
+    the v4 file is the current file with the old version number."""
+    for host in (_host(SITE), _nixos_host()):
+        old = compile_host(_model(SITE), host, None, schema_version=4).goal_file
+        new = compile_host(_model(SITE), host, None).goal_file
+        assert old["schema_version"] == 4 and new["schema_version"] == 5
+        assert {**old, "schema_version": 5} == new
+
+
+def test_dpkg_writer_is_refused_at_v5(schemas: Schemas) -> None:
+    """`dpkg` left the unit-writer enum in v5 (a package claim is its only spelling)."""
+    model = _model(SITE)
+    model.launchd_writers.data["writers"][3]["writer"] = "dpkg"  # dev.mise.*
+    assert validate_site_model(model, schemas) != []  # launchd-writers.schema.json dropped it too
+    with pytest.raises(CompileError, match="dpkg"):
+        compile_host(model, _host(SITE), schemas)
+
+
 def test_render_goal_file_alone_refuses_nixos_below_v4() -> None:
     from nix2cf.compile import render_goal_file
 
@@ -388,7 +407,7 @@ def test_cli_platform_is_required_and_android_not_offered(tendcf: Path) -> None:
 
 def test_unsupported_schema_version_refused() -> None:
     with pytest.raises(CompileError, match="not one this compiler renders"):
-        compile_host(_model(SITE), _host(SITE), None, schema_version=5)
+        compile_host(_model(SITE), _host(SITE), None, schema_version=GOAL_FILE_SCHEMA_VERSION + 1)
 
 
 # --- conflict check -------------------------------------------------------------

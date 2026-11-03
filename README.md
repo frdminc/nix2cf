@@ -40,7 +40,7 @@ uv run nix2cf buildfile \
 `--platform` (`macos` or `linux`) and `--supervisor` (`launchd`, `systemd`,
 `runit` or `nixos`) are both required and have no default. It is written into the goal file's `device-trust.entries.supervisor`;
 a `--device-trust` document that already carries a different `supervisor` is
-refused. The output is **schema_version 4** (tendcf's `goal-file.schema.json`);
+refused. The output is **schema_version 5** (tendcf's `goal-file.schema.json`);
 CI fails when `GOAL_FILE_SCHEMA_VERSION` and tendcf's schema const differ.
 
 That prints the host's **goal file**: the canonical (RFC 8785, no trailing
