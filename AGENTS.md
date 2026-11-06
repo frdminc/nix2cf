@@ -32,7 +32,7 @@ djbclark, 2026-10-31: tendcf and nix2cf are the most important work he is
 doing, and getting it right outranks cost. This lifts `model-routing` item 1b's
 *reason* test for these two repos only: here a frontier review needs no "really
 needs a frontier model" case, and a second opinion is reason enough. Every
-other repo keeps the default. The mechanics stay (item 4): `acp-dispatch`'s
+other repo keeps the default. The mechanics stay (item 4). As of 2026-11-06 (slim-down) `acp-dispatch` is a shim over `paseo run` and will be replaced by `paseo run` lines in a follow-up; `acp-dispatch`'s
 estimate floors, per-wave caps, in-flight reservation and exit 5 are not
 overridden. Never use `route-override`, `--est-pct`, `--min-headroom 0` or
 `--no-preflight` to get around them.
@@ -46,7 +46,7 @@ overridden. Never use `route-override`, `--est-pct`, `--min-headroom 0` or
 2. **Models.** Every lead session runs Opus 5.5 `high`, pipeline-only sessions
    (merges, waiters) included; `[lead].pipeline_model` does not apply here.
    Never Sonnet as a lead, and Fable is never a lead. Code slices run on
-   Sonnet 5.5 `high` or better (agy's Opus pool is fine) on whichever pool
+   Sonnet 5.5 `high` or better (the antigravity provider's Opus pool is fine) on whichever pool
    `route_agent.py plan` picks, through `/bigteam`. Never use a weaker tier
    (GLM, Gemini Flash, Cursor Auto, `gpt-6-luna`) in these repos. A slice
    climbs a tier only on evidence of failure.
@@ -61,7 +61,7 @@ overridden. Never use `route-override`, `--est-pct`, `--min-headroom 0` or
      order:
      1. astra: `acp-dispatch codex --model gpt-6-astra --kind frontier --effort high --perm read-only --frontier-reason "<repo> standing rule: cross-model review" --name NAME -f BRIEF -C WORKTREE`
      2. Fable: `acp-dispatch claude --model fable --kind frontier --effort high --perm read-only --frontier-reason "..." --name NAME -f BRIEF -C WORKTREE`
-     3. Gemini 4 Argon: `acp-dispatch agy --model gemini-4-argon --kind frontier --effort high --perm all --frontier-reason "<repo> standing rule: cross-model review" --name NAME -f BRIEF -C WORKTREE`. acp-run has no verified read-only mode for agy, so put read-only instructions in BRIEF and check the worktree diff before and after the review. That restricts Argon by instruction only, not by a read-only sandbox. Argon is fallback-only: it stands in when astra or Fable is short. Its frontier wiring landed in djbclark-ade PR 224 (merged 2026-11-02).
+     3. Gemini 4 Argon: `acp-dispatch agy --model gemini-4-argon --kind frontier --effort high --perm all --frontier-reason "<repo> standing rule: cross-model review" --name NAME -f BRIEF -C WORKTREE` today; when the djbclark-ade slim-down lands (its E9 retires the agy TUI and the Google AI plan is reached through Paseo's antigravity provider; its E6 shim maps the agent name to the Paseo provider) the same line reads `acp-dispatch antigravity --model gemini-4-argon …`. Argon stays behind `acp-dispatch --kind frontier` (estimate floor, in-flight reservation, per-wave frontier cap, exit 5), never a bare `paseo run`. There is no verified read-only mode for the Google provider, so put read-only instructions in BRIEF and check the worktree diff before and after the review. That restricts Argon by instruction only, not by a read-only sandbox. Argon is fallback-only: it stands in when astra or Fable is short. Its frontier wiring landed in djbclark-ade PR 224 (merged 2026-11-02).
    - A pool is **short** when `acp-dispatch` answers exit 5 (`unavailable`:
      wont-fit, inflight, headroom or preflight), or when `aiuse --available --json`
      lists it `usable_now: false`. Argon with no fresh `aiuse` reading counts
@@ -113,6 +113,7 @@ overridden. Never use `route-override`, `--est-pct`, `--min-headroom 0` or
    window on 2026-10-18). Every astra, Fable or Argon review goes through
    `acp-dispatch --kind frontier`, never a hand-run `acp-run`.
 5. **Gemini 4 Carbon** (announced 2026-10-28, not yet reachable by us):
-   recheck weekly with `acp-run agy --info --model gemini-4-carbon` and
+   recheck weekly with `paseo provider models antigravity` (the agy TUI
+   and `acp-run agy --info` are retired as of 2026-11-06, slim-down E9) and
    `aiuse --available --json`. When it is reachable, adopt it as the Google
    frontier model in place of Argon.
