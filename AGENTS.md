@@ -30,6 +30,16 @@ a book: `site-private/AGENTS.md` ("Book knowledge base").
 
 Native routing update: 2026-11-10 (Wave 6 A3/A4; admission limits preserved).
 
+**Environment availability exception (operator, 2026-11-10):** requirements
+below that name an agent or model unavailable in the current environment may
+be overridden with an available, appropriately capable agent. This includes
+the lead-model rule and the named frontier/cross-family reviewer requirement.
+Use a separate reviewer with fresh context, disclose its actual model and
+effort and the unavailable preferred route in the PR, and resolve findings
+before merge. Do not describe a same-family review as cross-family review.
+This exception does not waive review, CI, quota/headroom/reservation checks,
+untrusted-input boundaries, or explicit operator approval for other actions.
+
 djbclark, 2026-10-31: tendcf and nix2cf are the most important work he is
 doing, and getting it right outranks cost. This lifts `model-routing` item 1b's
 *reason* test for these two repos only: here a frontier review needs no "really
